@@ -1,0 +1,15 @@
+{
+  "version": "0.2.0",
+  "description": "Security runtime for AI coding agents",
+  "homepage": "https://github.com/samet4k/agent-shield",
+  "license": "MIT",
+  "url": "https://github.com/samet4k/agent-shield/releases/download/v0.2.0/agentshield-windows-x86_64.zip",
+  "hash": "SKIP",
+  "bin": ["agentshield.exe", "agentshield-daemon.exe", "agentshield-mcp.exe"],
+  "checkver": {
+    "github": "https://github.com/samet4k/agent-shield"
+  },
+  "autoupdate": {
+    "url": "https://github.com/samet4k/agent-shield/releases/download/v$version/agentshield-windows-x86_64.zip"
+  }
+}

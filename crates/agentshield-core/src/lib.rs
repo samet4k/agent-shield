@@ -1,4 +1,4 @@
-#![warn(clippy::all)]
+#![deny(clippy::all)]
 
 //! AgentShield core analysis pipeline, policy engine, and decision runtime.
 
@@ -18,7 +18,10 @@ pub mod threat;
 
 pub use decision::{Decision, Severity};
 pub use ipc::{AnalyzeParams, AnalyzeResult, DaemonStatus, ExecEvent, IpcRequest, IpcResponse};
-pub use logging::{init_logging, log_directory, write_command_log, CommandLogEntry};
+pub use logging::{
+    init_logging, log_directory, spawn_log_maintenance, write_command_log, CommandLogEntry,
+};
+pub use pipeline::ExecContext;
 pub use notify::{NotifyConfig, WebhookPayload};
 pub use pipeline::{AnalysisPipeline, AnalysisResult, PipelineError};
 pub use policy::{PolicyDocument, PolicyEngine, PolicyError, PolicyMatch};

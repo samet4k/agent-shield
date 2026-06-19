@@ -1,4 +1,5 @@
 pub mod client;
+pub mod transport;
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -39,6 +40,8 @@ pub struct AnalyzeParams {
     pub agent_id: Option<String>,
     pub source: Option<EventSource>,
     pub event_kind: Option<EventKind>,
+    pub pid: Option<u32>,
+    pub ppid: Option<u32>,
 }
 
 /// Analyze response payload.

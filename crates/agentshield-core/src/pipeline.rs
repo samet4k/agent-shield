@@ -8,7 +8,8 @@ use crate::decision::Decision;
 use crate::obfuscation::normalize;
 use crate::policy::PolicyEngine;
 use crate::session::{EventKind, EventSource, SecurityEvent, SessionState};
-use crate::threat::ThreatChainAnalyzer;
+
+const LATENCY_WARN_MS: f64 = 50.0;
 
 #[derive(Debug, Error)]
 pub enum PipelineError {
@@ -18,6 +19,12 @@ pub enum PipelineError {
     Ast(#[from] crate::ast::AstError),
     #[error("session not found: {0}")]
     SessionNotFound(uuid::Uuid),
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ExecContext {
+    pub pid: Option<u32>,
+    pub ppid: Option<u32>,
 }
 
 #[derive(Debug, Clone)]
@@ -30,12 +37,13 @@ pub struct AnalysisResult {
     pub patterns_matched: Vec<String>,
     pub obfuscation_detected: bool,
     pub execution_time_ms: f64,
+    pub allow_by_parent: bool,
 }
 
 pub struct AnalysisPipeline {
     policy: PolicyEngine,
     command_parser: CommandParser,
-    threat_analyzer: ThreatChainAnalyzer,
+    threat_analyzer: crate::threat::ThreatChainAnalyzer,
     session: SessionState,
 }
 
@@ -51,7 +59,7 @@ impl AnalysisPipeline {
         Ok(Self {
             policy,
             command_parser: CommandParser::new()?,
-            threat_analyzer: ThreatChainAnalyzer::new(threshold),
+            threat_analyzer: crate::threat::ThreatChainAnalyzer::new(threshold),
             session: SessionState::new(agent_id, window),
         })
     }
@@ -66,7 +74,7 @@ impl AnalysisPipeline {
         Ok(Self {
             policy,
             command_parser: CommandParser::new()?,
-            threat_analyzer: ThreatChainAnalyzer::new(threshold),
+            threat_analyzer: crate::threat::ThreatChainAnalyzer::new(threshold),
             session: SessionState::with_id(session_id, agent_id, window),
         })
     }
@@ -92,13 +100,56 @@ impl AnalysisPipeline {
         raw: &str,
         cwd: &Path,
     ) -> Result<AnalysisResult, PipelineError> {
+        futures::executor::block_on(self.analyze_command_async(raw, cwd, ExecContext::default()))
+    }
+
+    pub async fn analyze_command_async(
+        &mut self,
+        raw: &str,
+        cwd: &Path,
+        exec_ctx: ExecContext,
+    ) -> Result<AnalysisResult, PipelineError> {
         let start = Instant::now();
 
-        let norm = normalize(raw);
+        if let Some(ppid) = exec_ctx.ppid {
+            if self.session.process_tree.is_allowed_child(ppid) {
+                let elapsed = start.elapsed().as_secs_f64() * 1000.0;
+                let event = SecurityEvent {
+                    session_id: self.session.id,
+                    agent_id: self.session.agent_id.clone(),
+                    source: EventSource::ShellProxy,
+                    event_kind: EventKind::Command,
+                    command_raw: raw.to_string(),
+                    command_normalized: raw.to_string(),
+                    cwd: cwd.to_path_buf(),
+                    timestamp: chrono::Utc::now(),
+                };
+                return Ok(AnalysisResult {
+                    event,
+                    decision: Decision::Allow,
+                    risk_score: 0.0,
+                    cumulative_session_risk: self.session.cumulative_risk,
+                    rule_triggered: Some("allow-by-parent".into()),
+                    patterns_matched: vec!["allow-by-parent".into()],
+                    obfuscation_detected: false,
+                    execution_time_ms: elapsed,
+                    allow_by_parent: true,
+                });
+            }
+        }
+
+        let norm = tokio::task::spawn_blocking({
+            let raw_owned = raw.to_string();
+            move || normalize(&raw_owned)
+        })
+        .await
+        .map_err(|_| PipelineError::Ast(crate::ast::AstError::ParseFailed))?;
+
         let ir = self
             .command_parser
             .parse(&norm.normalized)
             .unwrap_or_else(|_| parse_command(&norm.normalized).unwrap_or_default());
+
         let obfuscation_detected = norm.obfuscation_detected || ir.obfuscation_hint;
 
         let event = SecurityEvent {
@@ -149,6 +200,12 @@ impl AnalysisPipeline {
             patterns.clone(),
         );
 
+        if matches!(threat_result.decision, Decision::Allow) {
+            if let Some(pid) = exec_ctx.pid {
+                self.session.process_tree.record_allowed(pid);
+            }
+        }
+
         let rule_triggered = policy_match
             .rule_name
             .or_else(|| match &threat_result.decision {
@@ -157,8 +214,16 @@ impl AnalysisPipeline {
             });
 
         let elapsed = start.elapsed().as_secs_f64() * 1000.0;
+        if elapsed > LATENCY_WARN_MS {
+            tracing::warn!(
+                "analysis latency {:.1}ms exceeded {}ms for command prefix: {}",
+                elapsed,
+                LATENCY_WARN_MS,
+                raw.chars().take(40).collect::<String>()
+            );
+        }
 
-        let result = AnalysisResult {
+        Ok(AnalysisResult {
             event: SecurityEvent {
                 command_normalized: event.command_normalized,
                 ..event
@@ -170,9 +235,8 @@ impl AnalysisPipeline {
             patterns_matched: patterns,
             obfuscation_detected,
             execution_time_ms: elapsed,
-        };
-
-        Ok(result)
+            allow_by_parent: false,
+        })
     }
 
     pub fn analyze_command_static(

@@ -1,0 +1,66 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: agentshield-linux-x86_64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: agentshield-windows-x86_64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact: agentshield-macos-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - run: cargo build --release -p agentshield-cli -p agentshield-daemon -p agentshield-mcp --target ${{ matrix.target }}
+      - run: mkdir dist
+        shell: bash
+      - name: Package (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          cp target/${{ matrix.target }}/release/agentshield dist/
+          cp target/${{ matrix.target }}/release/agentshield-daemon dist/
+          cp target/${{ matrix.target }}/release/agentshield-mcp dist/
+          tar czf ${{ matrix.artifact }}.tar.gz -C dist .
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Copy-Item target/${{ matrix.target }}/release/agentshield.exe dist/
+          Copy-Item target/${{ matrix.target }}/release/agentshield-daemon.exe dist/
+          Copy-Item target/${{ matrix.target }}/release/agentshield-mcp.exe dist/
+          Compress-Archive -Path dist/* -DestinationPath ${{ matrix.artifact }}.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            ${{ matrix.artifact }}.tar.gz
+            ${{ matrix.artifact }}.zip
+
+  github-release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            **/*.tar.gz
+            **/*.zip
+          generate_release_notes: true

@@ -183,6 +183,10 @@ impl PolicyEngine {
         None
     }
 
+    pub fn evaluate_network_command(&self, command: &str) -> Option<PolicyMatch> {
+        self.check_network(command)
+    }
+
     fn check_network(&self, command: &str) -> Option<PolicyMatch> {
         let fetchers = ["curl", "wget", "nc", "ncat"];
         if !fetchers.iter().any(|f| command.contains(f)) {

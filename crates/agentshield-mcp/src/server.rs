@@ -1,10 +1,12 @@
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use agentshield_core::{write_command_log, AnalysisPipeline, Decision, EventSource, PipelineError};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use tokio::sync::Mutex;
 
 const SERVER_NAME: &str = "agentshield";
 const SERVER_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -32,13 +34,43 @@ struct JsonRpcError {
     message: String,
 }
 
+struct ServerState {
+    pipeline: AnalysisPipeline,
+    cwd: PathBuf,
+}
+
 pub async fn run() -> Result<()> {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let mut pipeline = AnalysisPipeline::from_project(Some(&cwd), Some("mcp".into()))
+    let pipeline = AnalysisPipeline::from_project(Some(&cwd), Some("mcp".into()))
         .map_err(|e: PipelineError| anyhow::anyhow!("{e}"))?;
+
+    let state = Arc::new(Mutex::new(ServerState { pipeline, cwd }));
 
     let stdin = io::stdin();
     let mut stdout = io::stdout();
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<(JsonRpcRequest, tokio::sync::oneshot::Sender<JsonRpcResponse>)>(64);
+
+    let worker_state = Arc::clone(&state);
+    tokio::spawn(async move {
+        while let Some((req, reply_tx)) = rx.recv().await {
+            let worker_state = Arc::clone(&worker_state);
+            tokio::spawn(async move {
+                let id = req.id.clone().unwrap_or(Value::Null);
+                let resp = {
+                    let mut guard = worker_state.lock().await;
+                    let cwd = guard.cwd.clone();
+                    dispatch(&mut guard.pipeline, &cwd, req).await
+                };
+                let out = JsonRpcResponse {
+                    jsonrpc: "2.0",
+                    id,
+                    result: resp.result,
+                    error: resp.error,
+                };
+                let _ = reply_tx.send(out);
+            });
+        }
+    });
 
     for line in stdin.lock().lines() {
         let line = line?;
@@ -46,14 +78,9 @@ pub async fn run() -> Result<()> {
             continue;
         }
         let req: JsonRpcRequest = serde_json::from_str(&line)?;
-        let id = req.id.clone().unwrap_or(Value::Null);
-        let resp = dispatch(&mut pipeline, &cwd, req).await;
-        let out = JsonRpcResponse {
-            jsonrpc: "2.0",
-            id,
-            result: resp.result,
-            error: resp.error,
-        };
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+        tx.send((req, reply_tx)).await?;
+        let out = reply_rx.await?;
         writeln!(stdout, "{}", serde_json::to_string(&out)?)?;
         stdout.flush()?;
     }
@@ -197,8 +224,19 @@ async fn analyze_and_format(
     command: &str,
     _source: EventSource,
 ) -> Result<String> {
-    let result = pipeline.analyze_command(command, cwd).context("analyze")?;
+    let result = pipeline
+        .analyze_command_async(command, cwd, agentshield_core::ExecContext::default())
+        .await
+        .context("analyze")?;
     write_command_log(&result).ok();
+
+    if matches!(result.decision, Decision::Block { .. }) {
+        eprintln!(
+            "agentshield/security_notification decision=block risk={:.2} rule={}",
+            result.risk_score,
+            result.rule_triggered.as_deref().unwrap_or("-")
+        );
+    }
 
     let text = format!(
         "decision={}\nrisk={:.2}\ncumulative={:.2}\nrule={}\npatterns={}\n",

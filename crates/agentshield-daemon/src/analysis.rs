@@ -26,7 +26,15 @@ pub async fn analyze_command(
 
     let result = state
         .sessions
-        .analyze(session_id, &params.command, &cwd)
+        .analyze_with_context(
+            session_id,
+            &params.command,
+            &cwd,
+            agentshield_core::pipeline::ExecContext {
+                pid: params.pid,
+                ppid: params.ppid,
+            },
+        )
         .await?;
 
     write_command_log(&result).ok();
@@ -67,6 +75,8 @@ pub async fn handle_exec_event(
             agent_id: None,
             source: Some(event.source),
             event_kind: Some(EventKind::Command),
+            pid: Some(event.pid),
+            ppid: Some(event.ppid),
         },
         connection_id,
     )

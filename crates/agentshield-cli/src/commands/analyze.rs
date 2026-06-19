@@ -33,6 +33,8 @@ pub async fn run(command: &str, format: OutputFormat) -> anyhow::Result<()> {
             agent_id: None,
             source: None,
             event_kind: None,
+            pid: None,
+            ppid: None,
         })
         .await
         {

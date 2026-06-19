@@ -25,6 +25,31 @@ const CHAIN_TEMPLATES: &[ChainTemplate] = &[
         steps: &[".env", ".ssh", "curl"],
         risk: 0.95,
     },
+    ChainTemplate {
+        name: "privilege-escalation",
+        steps: &["sudo -s", "echo", "password"],
+        risk: 0.92,
+    },
+    ChainTemplate {
+        name: "reverse-shell",
+        steps: &["bash -i", "/dev/tcp", "nc -e"],
+        risk: 0.98,
+    },
+    ChainTemplate {
+        name: "docker-socket-escape",
+        steps: &["docker", "/var/run/docker.sock", "privileged"],
+        risk: 0.93,
+    },
+    ChainTemplate {
+        name: "cron-persistence",
+        steps: &["crontab", "echo", "curl"],
+        risk: 0.88,
+    },
+    ChainTemplate {
+        name: "ssh-key-theft",
+        steps: &["id_rsa", "cat", "curl"],
+        risk: 0.94,
+    },
 ];
 
 pub struct ThreatChainAnalyzer {
@@ -160,5 +185,34 @@ mod tests {
         };
         let result = analyzer.analyze(&session, &current);
         assert!(result.chain_patterns.is_empty() || result.risk_score > 0.0);
+    }
+
+    #[test]
+    fn detects_reverse_shell_pattern() {
+        let mut session = SessionState::new(None, 20);
+        session.push(CommandRecord {
+            command_normalized: "bash -i".into(),
+            risk_score: 0.5,
+            decision: Decision::Allow,
+            patterns: vec![],
+            timestamp: chrono::Utc::now(),
+        });
+        session.push(CommandRecord {
+            command_normalized: "cat /dev/tcp/10.0.0.1/4444".into(),
+            risk_score: 0.5,
+            decision: Decision::Allow,
+            patterns: vec![],
+            timestamp: chrono::Utc::now(),
+        });
+
+        let analyzer = ThreatChainAnalyzer::new(0.8);
+        let current = PolicyMatch {
+            decision: Decision::Allow,
+            rule_name: None,
+            risk_score: 0.3,
+            patterns_matched: vec![],
+        };
+        let result = analyzer.analyze(&session, &current);
+        assert!(result.chain_patterns.contains(&"reverse-shell".to_string()));
     }
 }

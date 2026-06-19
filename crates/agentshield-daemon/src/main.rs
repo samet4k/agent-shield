@@ -1,6 +1,6 @@
 mod analysis;
 mod collector;
-mod server;
+mod ipc_listener;
 mod state;
 
 use anyhow::Result;
@@ -8,6 +8,8 @@ use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    agentshield_core::logging::spawn_log_maintenance();
+
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
@@ -29,5 +31,5 @@ async fn main() -> Result<()> {
         }
     });
 
-    server::run(shared).await
+    ipc_listener::run(shared).await
 }

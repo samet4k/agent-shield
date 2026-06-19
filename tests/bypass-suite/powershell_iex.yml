@@ -1,0 +1,4 @@
+name: powershell-iex-block
+command: "Invoke-Expression (Get-Content payload.ps1)"
+expect: block
+min_risk: 0.4

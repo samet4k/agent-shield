@@ -2,6 +2,8 @@
 
 Security runtime for AI coding agents. AgentShield intercepts shell commands, evaluates them against YAML policies, and enforces allow, prompt, block, or sandbox decisions before execution.
 
+**v0.2** adds Windows named-pipe IPC, PowerShell obfuscation detection, session-aware threat chains, platform collectors, SDK daemon routing, and production CI/release packaging.
+
 ## Install
 
 ```bash

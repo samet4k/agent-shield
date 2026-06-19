@@ -40,7 +40,10 @@ enum Commands {
         deep: bool,
     },
     /// Daemon and runtime status
-    Status,
+    Status {
+        #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+        format: OutputFormat,
+    },
     /// Live terminal dashboard
     Dashboard,
     /// Generate a report from logs
@@ -129,7 +132,7 @@ async fn main() -> Result<()> {
         }
         Some(Commands::Init { profile }) => commands::init::run(&profile),
         Some(Commands::Install { deep }) => commands::install::run(deep),
-        Some(Commands::Status) => commands::status::run().await,
+        Some(Commands::Status { format }) => commands::status::run(format).await,
         Some(Commands::Dashboard) => tui::run_dashboard(),
         Some(Commands::Report { period }) => commands::report::run(&period),
         Some(Commands::Notify { action }) => match action {

@@ -8,6 +8,15 @@ static BASE64_PIPE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"base64\s+(-d|--decode)").unwrap());
 static CONCAT_QUOTES: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"r?""([^"]*)""\s*r?""([^"]*)""#).unwrap());
+static PS_ENCODED: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)(?:-|/)(?:e|ec|enc|encodedcommand)\s+").unwrap()
+});
+static PS_IEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)\b(?:invoke-expression|iex)\b").unwrap());
+static PS_TICK: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"`[a-zA-Z]").unwrap());
+static PS_B64_CONVERT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)\[system\.convert\]::frombase64string").unwrap()
+});
 
 /// Result of normalizing a potentially obfuscated command.
 #[derive(Debug, Clone, Default)]
@@ -57,8 +66,51 @@ pub fn normalize(command: &str) -> NormalizationResult {
         result.decoded_fragments.push(combined);
     }
 
+    detect_powershell_obfuscation(command, &mut result);
+
     result.normalized = collapse_whitespace(&result.normalized);
     result
+}
+
+fn detect_powershell_obfuscation(command: &str, result: &mut NormalizationResult) {
+    if PS_ENCODED.is_match(command) {
+        result.obfuscation_detected = true;
+        result.techniques.push("powershell-encoded-command".into());
+        if let Some(decoded) = try_decode_powershell_encoded(command) {
+            result.decoded_fragments.push(decoded.clone());
+            result.normalized.push(' ');
+            result.normalized.push_str(&decoded);
+        }
+    }
+    if PS_IEX.is_match(command) {
+        result.obfuscation_detected = true;
+        result.techniques.push("powershell-iex".into());
+    }
+    if PS_TICK.is_match(command) {
+        result.obfuscation_detected = true;
+        result.techniques.push("powershell-tick-escape".into());
+        result.normalized = PS_TICK
+            .replace_all(&result.normalized, |caps: &regex::Captures| {
+                caps[0].chars().nth(1).map(|c| c.to_string()).unwrap_or_default()
+            })
+            .into_owned();
+    }
+    if PS_B64_CONVERT.is_match(command) {
+        result.obfuscation_detected = true;
+        result.techniques.push("powershell-b64-convert".into());
+    }
+}
+
+fn try_decode_powershell_encoded(command: &str) -> Option<String> {
+    let re = Regex::new(r"(?i)(?:-|/)(?:e|ec|enc|encodedcommand)\s+([A-Za-z0-9+/=]+)").ok()?;
+    let cap = re.captures(command)?;
+    let b64 = cap.get(1)?.as_str();
+    let bytes = base64::engine::general_purpose::STANDARD.decode(b64).ok()?;
+    let utf16: Vec<u16> = bytes
+        .chunks_exact(2)
+        .map(|chunk| u16::from_le_bytes([chunk[0], chunk.get(1).copied().unwrap_or(0)]))
+        .collect();
+    String::from_utf16(&utf16).ok()
 }
 
 fn try_decode_base64_payload(command: &str) -> Option<String> {
@@ -104,5 +156,19 @@ mod tests {
         let r = normalize(cmd);
         assert!(r.obfuscation_detected);
         assert!(r.techniques.contains(&"base64-pipe".to_string()));
+    }
+
+    #[test]
+    fn detects_powershell_iex() {
+        let r = normalize("Invoke-Expression (Get-Content evil.ps1)");
+        assert!(r.obfuscation_detected);
+        assert!(r.techniques.contains(&"powershell-iex".to_string()));
+    }
+
+    #[test]
+    fn detects_powershell_tick_escape() {
+        let r = normalize("`r`m -rf /tmp/test");
+        assert!(r.obfuscation_detected);
+        assert!(r.normalized.contains("rm"));
     }
 }

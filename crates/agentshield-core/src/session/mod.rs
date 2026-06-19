@@ -1,6 +1,8 @@
 mod manager;
+mod process_tree;
 
 pub use manager::{ConnectionId, SessionManager};
+pub use process_tree::ProcessTreeTracker;
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
@@ -59,6 +61,7 @@ pub struct SessionState {
     pub history: VecDeque<CommandRecord>,
     pub cumulative_risk: f64,
     pub window_size: usize,
+    pub process_tree: ProcessTreeTracker,
 }
 
 impl SessionState {
@@ -69,6 +72,7 @@ impl SessionState {
             history: VecDeque::new(),
             cumulative_risk: 0.0,
             window_size,
+            process_tree: ProcessTreeTracker::default(),
         }
     }
 
@@ -79,6 +83,7 @@ impl SessionState {
             history: VecDeque::new(),
             cumulative_risk: 0.0,
             window_size,
+            process_tree: ProcessTreeTracker::default(),
         }
     }
 

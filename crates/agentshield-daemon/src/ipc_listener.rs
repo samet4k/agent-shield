@@ -1,10 +1,9 @@
+//! Platform-specific IPC listener for the daemon.
+
 use std::sync::Arc;
 
-use agentshield_core::ipc::{AnalyzeParams, DaemonStatus, ExecEvent, IpcRequest, IpcResponse};
+use agentshield_core::ipc::{AnalyzeParams, ExecEvent, IpcRequest, IpcResponse};
 use anyhow::{Context, Result};
-use interprocess::local_socket::tokio::Stream as LocalSocketStream;
-use interprocess::local_socket::traits::tokio::{Listener as _, Stream as _};
-use interprocess::local_socket::{GenericFilePath, ListenerOptions, ToFsName};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 use crate::analysis::{analyze_command, handle_exec_event};
@@ -13,6 +12,52 @@ use crate::state::SharedState;
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub async fn run(state: Arc<SharedState>) -> Result<()> {
+    #[cfg(windows)]
+    {
+        run_windows_pipe(state).await
+    }
+    #[cfg(unix)]
+    {
+        run_unix_socket(state).await
+    }
+}
+
+#[cfg(windows)]
+async fn run_windows_pipe(state: Arc<SharedState>) -> Result<()> {
+    use tokio::net::windows::named_pipe::ServerOptions;
+
+    tracing::info!(
+        "daemon listening on {}",
+        agentshield_core::ipc::transport::IPC_PIPE_NAME
+    );
+
+    let mut server = ServerOptions::new()
+        .first_pipe_instance(true)
+        .create(agentshield_core::ipc::transport::IPC_PIPE_NAME)
+        .context("create named pipe")?;
+
+    loop {
+        server.connect().await.context("pipe connect")?;
+        let connected = server;
+        server = ServerOptions::new()
+            .create(agentshield_core::ipc::transport::IPC_PIPE_NAME)
+            .context("recreate named pipe")?;
+
+        let state = Arc::clone(&state);
+        tokio::spawn(async move {
+            if let Err(e) = serve_stream(connected, state).await {
+                tracing::warn!("client error: {e}");
+            }
+        });
+    }
+}
+
+#[cfg(unix)]
+async fn run_unix_socket(state: Arc<SharedState>) -> Result<()> {
+    use interprocess::local_socket::tokio::Stream as LocalSocketStream;
+    use interprocess::local_socket::traits::tokio::{Listener as _, Stream as _};
+    use interprocess::local_socket::{GenericFilePath, ListenerOptions, ToFsName};
+
     let socket_path = agentshield_core::ipc::ipc_socket_path();
     if let Some(parent) = socket_path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -37,16 +82,19 @@ pub async fn run(state: Arc<SharedState>) -> Result<()> {
         let stream = listener.accept().await.context("accept IPC")?;
         let state = Arc::clone(&state);
         tokio::spawn(async move {
-            if let Err(e) = handle_client(stream, state).await {
+            if let Err(e) = serve_stream(stream, state).await {
                 tracing::warn!("client error: {e}");
             }
         });
     }
 }
 
-async fn handle_client(stream: LocalSocketStream, state: Arc<SharedState>) -> Result<()> {
+async fn serve_stream<S>(stream: S, state: Arc<SharedState>) -> Result<()>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
     let connection_id = state.next_connection_id();
-    let (reader, mut writer) = stream.split();
+    let (reader, mut writer) = tokio::io::split(stream);
     let mut lines = BufReader::new(reader).lines();
 
     while let Some(line) = lines.next_line().await? {
@@ -55,6 +103,7 @@ async fn handle_client(stream: LocalSocketStream, state: Arc<SharedState>) -> Re
         writer
             .write_all(format!("{}\n", serde_json::to_string(&resp)?).as_bytes())
             .await?;
+        writer.flush().await?;
     }
     Ok(())
 }
@@ -74,7 +123,7 @@ async fn dispatch(
         },
         "status" => {
             let session_count = state.sessions.session_count().await;
-            let status = DaemonStatus {
+            let status = agentshield_core::ipc::DaemonStatus {
                 active: true,
                 version: VERSION.into(),
                 total_commands: state.stats.total.load(std::sync::atomic::Ordering::Relaxed),
@@ -97,7 +146,7 @@ async fn dispatch(
                 obj.insert("session_count".into(), session_count.into());
             }
             ok(req.id, value)
-        }
+        },
         "exec_event" => match serde_json::from_value::<ExecEvent>(req.params) {
             Ok(event) => match handle_exec_event(state, event, connection_id).await {
                 Ok(result) => ok(req.id, serde_json::to_value(result).unwrap_or_default()),

@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { execSync } from 'child_process';
 
 let statusBar: vscode.StatusBarItem;
 let pollTimer: NodeJS.Timeout | undefined;
@@ -11,19 +12,35 @@ export function activate(context: vscode.ExtensionContext): void {
   statusBar.command = 'agentshield.showStatus';
   context.subscriptions.push(statusBar);
 
-  configureTerminal();
+  if (vscode.workspace.getConfiguration('agentshield').get<boolean>('enabled', true)) {
+    configureTerminal();
+  }
   updateStatusBar();
   pollTimer = setInterval(updateStatusBar, 5000);
   context.subscriptions.push({ dispose: () => clearInterval(pollTimer) });
 
   context.subscriptions.push(
     vscode.commands.registerCommand('agentshield.showStatus', showStatus),
-    vscode.commands.registerCommand('agentshield.enable', enableAgentShield)
+    vscode.commands.registerCommand('agentshield.enable', enableAgentShield),
+    vscode.commands.registerCommand('agentshield.toggleProtection', toggleProtection)
   );
 }
 
 export function deactivate(): void {
   if (pollTimer) clearInterval(pollTimer);
+}
+
+async function toggleProtection(): Promise<void> {
+  const config = vscode.workspace.getConfiguration('agentshield');
+  const enabled = config.get<boolean>('enabled', true);
+  await config.update('enabled', !enabled, vscode.ConfigurationTarget.Global);
+  if (!enabled) {
+    configureTerminal();
+    vscode.window.showInformationMessage('AgentShield protection enabled.');
+  } else {
+    vscode.window.showInformationMessage('AgentShield protection disabled.');
+  }
+  updateStatusBar();
 }
 
 function configureTerminal(): void {
@@ -93,6 +110,23 @@ function logDirectory(): string {
   return path.join(os.homedir(), '.local', 'share', 'agentshield', 'logs');
 }
 
+function daemonStatus(): { active: boolean; version?: string; blocked?: number } {
+  const binary = vscode.workspace.getConfiguration('agentshield').get<string>('binaryPath', 'agentshield');
+  try {
+    const out = execSync(`${binary} status --format json`, { encoding: 'utf8', timeout: 2000 });
+    const payload = JSON.parse(out) as {
+      daemon?: { active?: boolean; version?: string; blocked_count?: number };
+    };
+    return {
+      active: payload.daemon?.active ?? false,
+      version: payload.daemon?.version,
+      blocked: payload.daemon?.blocked_count,
+    };
+  } catch {
+    return { active: false };
+  }
+}
+
 function readTodayStats(): { total: number; blocked: number } {
   const today = new Date().toISOString().slice(0, 10);
   const dir = logDirectory();
@@ -128,24 +162,31 @@ function updateStatusBar(): void {
     return;
   }
 
+  const daemon = daemonStatus();
   const { total, blocked } = readTodayStats();
-  if (blocked > 0) {
-    statusBar.text = `$(shield) AgentShield: $(error) ${blocked} blocked`;
+  const blockedCount = Math.max(blocked, daemon.blocked ?? 0);
+
+  if (blockedCount > 0) {
+    statusBar.text = `$(shield) AgentShield: $(error) ${blockedCount} blocked`;
     statusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
   } else if (total > 0) {
     statusBar.text = `$(shield) AgentShield: active (${total})`;
+    statusBar.backgroundColor = undefined;
+  } else if (daemon.active) {
+    statusBar.text = `$(shield) AgentShield: daemon ${daemon.version ?? ''}`.trim();
     statusBar.backgroundColor = undefined;
   } else {
     statusBar.text = '$(shield) AgentShield: active';
     statusBar.backgroundColor = undefined;
   }
-  statusBar.tooltip = `AgentShield security runtime\nCommands today: ${total}\nBlocked: ${blocked}`;
+  statusBar.tooltip = `AgentShield security runtime\nDaemon: ${daemon.active ? 'connected' : 'offline'}\nCommands today: ${total}\nBlocked: ${blockedCount}`;
   statusBar.show();
 }
 
 function showStatus(): void {
+  const daemon = daemonStatus();
   const { total, blocked } = readTodayStats();
   vscode.window.showInformationMessage(
-    `AgentShield: ${total} commands today, ${blocked} blocked. Logs: ${logDirectory()}`
+    `AgentShield: ${total} commands today, ${blocked} blocked. Daemon: ${daemon.active ? 'active' : 'offline'}. Logs: ${logDirectory()}`
   );
 }

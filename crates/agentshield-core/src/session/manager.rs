@@ -102,13 +102,29 @@ impl SessionManager {
         command: &str,
         cwd: &Path,
     ) -> Result<AnalysisResult, PipelineError> {
+        self.analyze_with_context(
+            session_id,
+            command,
+            cwd,
+            crate::pipeline::ExecContext::default(),
+        )
+        .await
+    }
+
+    pub async fn analyze_with_context(
+        &self,
+        session_id: Uuid,
+        command: &str,
+        cwd: &Path,
+        exec_ctx: crate::pipeline::ExecContext,
+    ) -> Result<AnalysisResult, PipelineError> {
         let mut sessions = self.sessions.write().await;
         let entry = sessions
             .get_mut(&session_id)
             .ok_or(PipelineError::SessionNotFound(session_id))?;
 
         entry.last_active = Utc::now();
-        entry.pipeline.analyze_command(command, cwd)
+        entry.pipeline.analyze_command_async(command, cwd, exec_ctx).await
     }
 
     pub async fn purge_expired(&self) -> usize {

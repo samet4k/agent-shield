@@ -2,7 +2,6 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::time::timeout;
 use uuid::Uuid;
 
@@ -13,7 +12,7 @@ static REQ_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(
 static SESSION_CACHE: Mutex<Option<Uuid>> = Mutex::new(None);
 
 pub async fn daemon_available() -> bool {
-    super::ipc_socket_path().exists()
+    super::transport::endpoint_available().await
 }
 
 pub async fn analyze_via_daemon(mut params: AnalyzeParams) -> Result<AnalyzeResult> {
@@ -58,33 +57,9 @@ pub async fn daemon_status() -> Result<DaemonStatus> {
 }
 
 async fn call_daemon(req: IpcRequest) -> Result<IpcResponse> {
-    use interprocess::local_socket::traits::tokio::Stream as _;
-    use interprocess::local_socket::GenericFilePath;
-    use interprocess::local_socket::ToFsName;
-
-    let socket_path = super::ipc_socket_path();
-    let name = socket_path
-        .to_fs_name::<GenericFilePath>()
-        .context("socket path")?;
-
-    let stream = timeout(
-        Duration::from_secs(2),
-        interprocess::local_socket::tokio::prelude::LocalSocketStream::connect(name),
-    )
-    .await
-    .context("connect timeout")?
-    .context("connect daemon")?;
-
-    let (reader, mut writer) = stream.split();
-    writer
-        .write_all(format!("{}\n", serde_json::to_string(&req)?).as_bytes())
-        .await?;
-    let mut lines = BufReader::new(reader).lines();
-    let line = lines
-        .next_line()
-        .await?
-        .context("daemon closed connection")?;
-    serde_json::from_str(&line).context("decode IPC response")
+    timeout(Duration::from_secs(2), super::transport::call_daemon(&req))
+        .await
+        .context("connect timeout")?
 }
 
 impl AnalyzeResult {
