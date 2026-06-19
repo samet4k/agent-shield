@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<SiPolicy xmlns="urn:schemas-microsoft-com:sipolicy">
+  <VersionEx>10.0.0.0</VersionEx>
+  <PlatformID>{57703849-6162-4aee-ae1d-61778b518664}</PlatformID>
+  <Rules>
+    <Rule>
+      <Option>Enabled:Unsigned System Integrity Policy</Option>
+    </Rule>
+  </Rules>
+  <!-- Companion policy: require agentshield shell proxy for agent processes -->
+  <FileRules />
+  <Signers />
+  <SigningScenarios>
+    <SigningScenario Value="12" ID="ID_SIGNINGSCENARIO_DRIVERS_1" PolicyName="AgentShield" />
+  </SigningScenarios>
+</SiPolicy>

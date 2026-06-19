@@ -1,0 +1,38 @@
+version: "1.0"
+
+trust_level: standard
+
+rules:
+  - name: block-pipe-to-shell
+    match:
+      pipe_to_shell: true
+    action: block
+    severity: critical
+    message: "Piping downloaded content to a shell is blocked."
+
+  - name: prompt-npm-publish
+    match:
+      command: "npm"
+      pattern: "publish"
+    action: prompt
+    severity: high
+    message: "npm publish requires approval."
+
+filesystem:
+  allow_write: ["src/**", "public/**", "tests/**", "docs/**"]
+  deny_read: [".env*", "*.pem", "*.key"]
+  deny_write: [".git/**", "package-lock.json"]
+
+network:
+  allowed_domains:
+    - registry.npmjs.org
+    - npmjs.com
+    - github.com
+    - api.github.com
+    - vercel.com
+    - netlify.com
+  block_unknown: false
+
+session:
+  threat_chain_window: 20
+  cumulative_risk_threshold: 0.8

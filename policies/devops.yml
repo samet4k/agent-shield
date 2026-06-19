@@ -1,0 +1,43 @@
+version: "1.0"
+trust_level: standard
+
+rules:
+  - name: block-pipe-to-shell
+    match:
+      pipe_to_shell: true
+    action: block
+    severity: critical
+    message: "Piping to shell blocked."
+
+  - name: prompt-kubectl-delete
+    match:
+      command: "kubectl"
+      pattern: "delete"
+    action: prompt
+    severity: high
+    message: "kubectl delete requires approval."
+
+  - name: block-docker-socket
+    match:
+      pattern: "/var/run/docker.sock"
+    action: block
+    severity: critical
+    message: "Direct docker socket access blocked."
+
+filesystem:
+  allow_write: ["**/*.yml", "**/*.yaml", "terraform/**", "ansible/**"]
+  deny_read: [".env*", "*.pem", "kubeconfig", ".kube/**"]
+  deny_write: [".git/**"]
+
+network:
+  allowed_domains:
+    - github.com
+    - registry.npmjs.org
+    - crates.io
+    - docker.io
+    - gcr.io
+  block_unknown: false
+
+session:
+  threat_chain_window: 30
+  cumulative_risk_threshold: 0.75

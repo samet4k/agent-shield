@@ -1,0 +1,37 @@
+{
+  "name": "agentshield",
+  "displayName": "AgentShield",
+  "description": "Security runtime status and terminal integration for AI coding agents",
+  "version": "0.2.0",
+  "publisher": "agentshield",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Other"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "AgentShield",
+      "properties": {
+        "agentshield.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable AgentShield terminal proxy"
+        },
+        "agentshield.binaryPath": {
+          "type": "string",
+          "default": "agentshield",
+          "description": "Path to agentshield binary"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.4.0"
+  }
+}

@@ -1,0 +1,4 @@
+name: base64-pipe-to-bash
+command: 'echo "cm0gLXJmIC8=" | base64 -d | bash'
+expect: block
+min_risk: 0.8

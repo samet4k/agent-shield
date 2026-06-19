@@ -1,0 +1,17 @@
+{
+  "name": "@agentshield/node",
+  "version": "0.2.0",
+  "description": "Node.js SDK for AgentShield — child_process interception",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "node --test dist/tests/hooks.test.js"
+  },
+  "keywords": ["agentshield", "security", "ai-agents"],
+  "license": "MIT OR Apache-2.0",
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0"
+  }
+}

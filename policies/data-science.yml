@@ -1,0 +1,37 @@
+version: "1.0"
+trust_level: permissive
+
+rules:
+  - name: block-pipe-to-shell
+    match:
+      pipe_to_shell: true
+    action: block
+    severity: critical
+    message: "Piping to shell blocked."
+
+  - name: prompt-rm-data
+    match:
+      command: "rm"
+      flags_include: ["-rf"]
+      pattern: "data"
+    action: prompt
+    severity: high
+    message: "Deleting data directory requires approval."
+
+filesystem:
+  allow_write: ["notebooks/**", "data/**", "models/**", "src/**"]
+  deny_read: [".env*", "*.pem", "secrets/**"]
+  deny_write: [".git/**"]
+
+network:
+  allowed_domains:
+    - huggingface.co
+    - pypi.org
+    - github.com
+    - wandb.ai
+    - mlflow.org
+  block_unknown: false
+
+session:
+  threat_chain_window: 20
+  cumulative_risk_threshold: 0.85

@@ -1,0 +1,13 @@
+[package]
+name = "agentshield-macos"
+description = "macOS Endpoint Security observer for AgentShield"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+agentshield-core = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }

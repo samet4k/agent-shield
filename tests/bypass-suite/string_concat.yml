@@ -1,0 +1,4 @@
+name: hex-escape-rm
+command: "echo $'\\x72\\x6d'"
+expect: block
+min_risk: 0.4

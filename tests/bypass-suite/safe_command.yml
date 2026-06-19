@@ -1,0 +1,3 @@
+name: safe-ls
+command: "ls -la"
+expect: allow

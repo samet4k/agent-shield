@@ -1,0 +1,63 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/agentshield-core",
+    "crates/agentshield-cli",
+    "crates/agentshield-daemon",
+    "crates/agentshield-ebpf",
+    "crates/agentshield-etw",
+    "crates/agentshield-macos",
+    "crates/agentshield-mcp",
+    "crates/agentshield-plugin-sdk",
+    "crates/agentshield-test-harness",
+]
+default-members = ["crates/agentshield-cli"]
+
+[workspace.package]
+version = "0.2.0"
+edition = "2021"
+rust-version = "1.80"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/agentshield/agentshield"
+authors = ["AgentShield Contributors"]
+
+[workspace.dependencies]
+agentshield-core = { path = "crates/agentshield-core" }
+agentshield-daemon = { path = "crates/agentshield-daemon" }
+agentshield-ebpf = { path = "crates/agentshield-ebpf" }
+agentshield-etw = { path = "crates/agentshield-etw" }
+agentshield-macos = { path = "crates/agentshield-macos" }
+agentshield-mcp = { path = "crates/agentshield-mcp" }
+agentshield-plugin-sdk = { path = "crates/agentshield-plugin-sdk" }
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+toml = "0.8"
+tree-sitter = "0.24"
+tree-sitter-bash = "0.23"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-appender = "0.2"
+portable-pty = "0.9"
+ratatui = "0.29"
+crossterm = "0.28"
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+globset = "0.4"
+anyhow = "1"
+thiserror = "2"
+dirs = "5"
+base64 = "0.22"
+regex = "1"
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+wasmtime = "28"
+sysinfo = "0.33"
+notify = "7"
+streaming-iterator = "0.1"
+walkdir = "2"
+bytes = "1"
+futures = "0.3"
+interprocess = "2"

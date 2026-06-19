@@ -1,0 +1,46 @@
+version: "1.0"
+trust_level: minimal
+
+rules:
+  - name: block-pipe-to-shell
+    match:
+      pipe_to_shell: true
+    action: block
+    severity: critical
+    message: "Piping to shell blocked."
+
+  - name: block-obfuscation
+    match:
+      obfuscation: true
+    action: block
+    severity: critical
+    message: "Obfuscation blocked."
+
+  - name: block-indirect-exec
+    match:
+      indirect_exec: true
+    action: block
+    severity: critical
+    message: "Indirect execution blocked."
+
+  - name: prompt-all-rm
+    match:
+      command: "rm"
+    action: prompt
+    severity: high
+    message: "All rm commands require approval."
+
+filesystem:
+  allow_write: ["src/**"]
+  deny_read: [".env*", "*.pem", "*.key", ".ssh/**", "**/secrets/**"]
+  deny_write: ["**"]
+
+network:
+  allowed_domains:
+    - crates.io
+    - registry.npmjs.org
+  block_unknown: true
+
+session:
+  threat_chain_window: 50
+  cumulative_risk_threshold: 0.5

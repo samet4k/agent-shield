@@ -1,0 +1,20 @@
+version: "1.0"
+
+trust_level: standard
+
+rules:
+  - name: block-pipe-to-shell
+    match:
+      pipe_to_shell: true
+    action: block
+    severity: critical
+    message: "Piping downloaded content to a shell is blocked."
+
+filesystem:
+  allow_write: ["crates/**", "sdks/**", "extensions/**", "policies/**", "tests/**", "docs/**"]
+  deny_read: [".env*", "*.pem", "*.key"]
+  deny_write: [".git/**"]
+
+session:
+  threat_chain_window: 20
+  cumulative_risk_threshold: 0.8

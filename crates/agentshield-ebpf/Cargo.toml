@@ -1,0 +1,16 @@
+[package]
+name = "agentshield-ebpf"
+description = "Linux eBPF execve observer for AgentShield"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+agentshield-core = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Full eBPF via Aya ships in v0.3; MVP observer uses procfs fallback on Linux

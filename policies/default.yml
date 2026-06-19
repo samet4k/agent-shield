@@ -1,0 +1,76 @@
+version: "1.0"
+
+trust_level: standard
+
+rules:
+  - name: block-pipe-to-shell
+    match:
+      pipe_to_shell: true
+    action: block
+    severity: critical
+    message: "Piping downloaded content to a shell is blocked."
+
+  - name: block-obfuscation
+    match:
+      obfuscation: true
+    action: block
+    severity: critical
+    message: "Obfuscated command execution is blocked."
+
+  - name: block-indirect-exec
+    match:
+      indirect_exec: true
+    action: prompt
+    severity: high
+    message: "Indirect command execution requires approval."
+
+  - name: block-env-exfil
+    match:
+      pattern: "env"
+      context: "pipe_destination"
+    action: block
+    severity: critical
+    message: "Environment variable exfiltration via network is blocked."
+
+  - name: block-env-curl
+    match:
+      pattern: "env"
+      requires_any: ["curl", "wget", "nc"]
+    action: block
+    severity: critical
+    message: "Environment variable exfiltration via network is blocked."
+
+  - name: block-chmod-execute-chain
+    match:
+      pattern: "chmod"
+      requires_any: ["/tmp/", "&&"]
+    action: block
+    severity: critical
+    message: "Download-chmod-execute chain blocked."
+
+  - name: prompt-recursive-delete
+    match:
+      command: "rm"
+      flags_include: ["-rf", "-fr"]
+    action: prompt
+    severity: high
+    message: "Recursive delete requires approval."
+
+filesystem:
+  allow_write: ["src/**", "tests/**", "docs/**", "crates/**", "sdks/**", "extensions/**", "policies/**"]
+  deny_read: [".env*", "*.pem", "*.key", ".ssh/**"]
+  deny_write: ["*.lock", ".git/**"]
+
+network:
+  allowed_domains:
+    - registry.npmjs.org
+    - crates.io
+    - pypi.org
+    - github.com
+    - api.github.com
+  block_unknown: false
+  alert_on_large_upload: "1MB"
+
+session:
+  threat_chain_window: 20
+  cumulative_risk_threshold: 0.8

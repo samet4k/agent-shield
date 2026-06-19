@@ -1,0 +1,4 @@
+name: eval-dynamic
+command: "eval 'rm -rf /tmp/test'"
+expect: prompt
+min_risk: 0.4

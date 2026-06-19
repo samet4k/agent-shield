@@ -1,0 +1,35 @@
+[package]
+name = "agentshield"
+description = "Security runtime for AI coding agents — shell proxy and CLI"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "agentshield"
+path = "src/main.rs"
+
+[dependencies]
+agentshield-core = { workspace = true }
+tokio = { workspace = true }
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+portable-pty = { workspace = true }
+ratatui = { workspace = true }
+crossterm = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+anyhow = { workspace = true }
+dirs = { workspace = true }
+serde_yaml = { workspace = true }
+agentshield-plugin-sdk = { workspace = true }
+interprocess = { workspace = true, features = ["tokio"] }
+
+[dev-dependencies]
+tempfile = "3"

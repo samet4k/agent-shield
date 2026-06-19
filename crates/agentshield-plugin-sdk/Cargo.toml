@@ -1,0 +1,15 @@
+[package]
+name = "agentshield-plugin-sdk"
+description = "WASM plugin runtime and SDK for AgentShield community rules"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+agentshield-core = { workspace = true }
+wasmtime = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+dirs = { workspace = true }
