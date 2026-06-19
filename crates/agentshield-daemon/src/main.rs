@@ -16,5 +16,18 @@ async fn main() -> Result<()> {
 
     let shared = state::SharedState::new()?;
     collector::spawn_collectors(shared.clone()).await?;
+
+    let expiry_state = shared.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
+        loop {
+            interval.tick().await;
+            let purged = expiry_state.sessions.purge_expired().await;
+            if purged > 0 {
+                tracing::info!("purged {purged} expired sessions");
+            }
+        }
+    });
+
     server::run(shared).await
 }

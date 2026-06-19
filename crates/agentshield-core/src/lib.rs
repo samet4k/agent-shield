@@ -22,5 +22,7 @@ pub use logging::{init_logging, log_directory, write_command_log, CommandLogEntr
 pub use notify::{NotifyConfig, WebhookPayload};
 pub use pipeline::{AnalysisPipeline, AnalysisResult, PipelineError};
 pub use policy::{PolicyDocument, PolicyEngine, PolicyError, PolicyMatch};
-pub use session::{EventKind, EventSource, SecurityEvent, SessionState};
+pub use session::{
+    ConnectionId, EventKind, EventSource, SecurityEvent, SessionManager, SessionState,
+};
 pub use threat::{ThreatChainAnalyzer, ThreatChainResult};

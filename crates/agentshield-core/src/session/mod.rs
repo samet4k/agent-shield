@@ -1,3 +1,7 @@
+mod manager;
+
+pub use manager::{ConnectionId, SessionManager};
+
 use std::collections::VecDeque;
 use std::path::PathBuf;
 
@@ -7,7 +11,6 @@ use uuid::Uuid;
 
 use crate::decision::Decision;
 
-/// Origin of a captured security event.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EventSource {
@@ -19,7 +22,6 @@ pub enum EventSource {
     Mcp,
 }
 
-/// Kind of security-relevant activity.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EventKind {
@@ -29,7 +31,6 @@ pub enum EventKind {
     Network,
 }
 
-/// Normalized event consumed by the analysis pipeline.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SecurityEvent {
     pub session_id: Uuid,
@@ -42,7 +43,6 @@ pub struct SecurityEvent {
     pub timestamp: DateTime<Utc>,
 }
 
-/// Record of a prior command in the session threat chain.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CommandRecord {
     pub command_normalized: String,
@@ -52,7 +52,6 @@ pub struct CommandRecord {
     pub timestamp: DateTime<Utc>,
 }
 
-/// Sliding-window session state for multi-step threat analysis.
 #[derive(Debug, Clone)]
 pub struct SessionState {
     pub id: Uuid,
@@ -66,6 +65,16 @@ impl SessionState {
     pub fn new(agent_id: Option<String>, window_size: usize) -> Self {
         Self {
             id: Uuid::new_v4(),
+            agent_id,
+            history: VecDeque::new(),
+            cumulative_risk: 0.0,
+            window_size,
+        }
+    }
+
+    pub fn with_id(id: Uuid, agent_id: Option<String>, window_size: usize) -> Self {
+        Self {
+            id,
             agent_id,
             history: VecDeque::new(),
             cumulative_risk: 0.0,

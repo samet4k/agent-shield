@@ -89,7 +89,7 @@ async fn sysinfo_observer(state: Arc<SharedState>) -> Result<()> {
                 cwd: process.cwd().map(|p| p.display().to_string()),
             };
 
-            if let Err(e) = handle_exec_event(&state, event).await {
+            if let Err(e) = handle_exec_event(&state, event, None).await {
                 tracing::warn!("exec event analysis failed: {e}");
             }
         }

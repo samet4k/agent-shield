@@ -1,14 +1,14 @@
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use agentshield_core::{AnalysisPipeline, PipelineError};
-use tokio::sync::{Mutex, RwLock};
+use agentshield_core::{PipelineError, SessionManager};
+use tokio::sync::RwLock;
 
 pub struct SharedState {
-    pub pipeline: Mutex<AnalysisPipeline>,
+    pub sessions: Arc<SessionManager>,
     pub stats: Stats,
     pub collectors: RwLock<Vec<String>>,
+    next_connection: AtomicU64,
 }
 
 pub struct Stats {
@@ -20,11 +20,11 @@ pub struct Stats {
 
 impl SharedState {
     pub fn new() -> Result<Arc<Self>, PipelineError> {
-        let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-        let pipeline = AnalysisPipeline::from_project(Some(&cwd), Some("daemon".into()))?;
+        let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        let sessions = SessionManager::new(Some(&cwd))?;
 
         Ok(Arc::new(Self {
-            pipeline: Mutex::new(pipeline),
+            sessions,
             stats: Stats {
                 total: AtomicU64::new(0),
                 blocked: AtomicU64::new(0),
@@ -32,7 +32,12 @@ impl SharedState {
                 sandboxed: AtomicU64::new(0),
             },
             collectors: RwLock::new(Vec::new()),
+            next_connection: AtomicU64::new(1),
         }))
+    }
+
+    pub fn next_connection_id(&self) -> agentshield_core::ConnectionId {
+        agentshield_core::ConnectionId(self.next_connection.fetch_add(1, Ordering::Relaxed))
     }
 
     pub fn record_decision(&self, label: &str) {

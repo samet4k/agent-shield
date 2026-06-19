@@ -3,7 +3,7 @@ use std::time::Instant;
 
 use thiserror::Error;
 
-use crate::ast::BashParser;
+use crate::ast::{parse_command, CommandParser};
 use crate::decision::Decision;
 use crate::obfuscation::normalize;
 use crate::policy::PolicyEngine;
@@ -16,6 +16,8 @@ pub enum PipelineError {
     Policy(#[from] crate::policy::PolicyError),
     #[error("ast parse error: {0}")]
     Ast(#[from] crate::ast::AstError),
+    #[error("session not found: {0}")]
+    SessionNotFound(uuid::Uuid),
 }
 
 #[derive(Debug, Clone)]
@@ -32,7 +34,7 @@ pub struct AnalysisResult {
 
 pub struct AnalysisPipeline {
     policy: PolicyEngine,
-    bash_parser: BashParser,
+    command_parser: CommandParser,
     threat_analyzer: ThreatChainAnalyzer,
     session: SessionState,
 }
@@ -48,10 +50,29 @@ impl AnalysisPipeline {
 
         Ok(Self {
             policy,
-            bash_parser: BashParser::new()?,
+            command_parser: CommandParser::new()?,
             threat_analyzer: ThreatChainAnalyzer::new(threshold),
             session: SessionState::new(agent_id, window),
         })
+    }
+
+    pub fn from_policy(
+        policy: PolicyEngine,
+        agent_id: Option<String>,
+        session_id: uuid::Uuid,
+        window: usize,
+        threshold: f64,
+    ) -> Result<Self, PipelineError> {
+        Ok(Self {
+            policy,
+            command_parser: CommandParser::new()?,
+            threat_analyzer: ThreatChainAnalyzer::new(threshold),
+            session: SessionState::with_id(session_id, agent_id, window),
+        })
+    }
+
+    pub fn set_session_id(&mut self, id: uuid::Uuid) {
+        self.session.id = id;
     }
 
     pub fn from_project(
@@ -74,7 +95,11 @@ impl AnalysisPipeline {
         let start = Instant::now();
 
         let norm = normalize(raw);
-        let ir = self.bash_parser.parse(&norm.normalized).unwrap_or_default();
+        let ir = self
+            .command_parser
+            .parse(&norm.normalized)
+            .unwrap_or_else(|_| parse_command(&norm.normalized).unwrap_or_default());
+        let obfuscation_detected = norm.obfuscation_detected || ir.obfuscation_hint;
 
         let event = SecurityEvent {
             session_id: self.session.id,
@@ -143,7 +168,7 @@ impl AnalysisPipeline {
             cumulative_session_risk: threat_result.cumulative_session_risk,
             rule_triggered,
             patterns_matched: patterns,
-            obfuscation_detected: norm.obfuscation_detected,
+            obfuscation_detected,
             execution_time_ms: elapsed,
         };
 
@@ -155,8 +180,7 @@ impl AnalysisPipeline {
         policy: &PolicyEngine,
     ) -> Result<(Decision, f64, Vec<String>), PipelineError> {
         let norm = normalize(raw);
-        let mut parser = BashParser::new()?;
-        let ir = parser.parse(&norm.normalized).unwrap_or_default();
+        let ir = parse_command(&norm.normalized).unwrap_or_default();
 
         let normalized = norm.normalized.clone();
         let event = SecurityEvent {

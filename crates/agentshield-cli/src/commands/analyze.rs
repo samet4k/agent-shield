@@ -29,6 +29,7 @@ pub async fn run(command: &str, format: OutputFormat) -> anyhow::Result<()> {
         match ipc_client::analyze_via_daemon(AnalyzeParams {
             command: command.to_string(),
             cwd: Some(cwd.display().to_string()),
+            session_id: None,
             agent_id: None,
             source: None,
             event_kind: None,

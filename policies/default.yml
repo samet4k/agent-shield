@@ -56,6 +56,28 @@ rules:
     severity: high
     message: "Recursive delete requires approval."
 
+  - name: block-pipe-to-bash-ast
+    match:
+      ast_pattern: "pipeline > command[name='bash']"
+      context: "pipe_destination == 'bash'"
+    action: block
+    severity: critical
+    message: "Piping downloaded content to a shell is blocked."
+
+  - name: block-env-in-substitution
+    match:
+      ast_pattern: "command_substitution > command[name='env']"
+    action: block
+    severity: critical
+    message: "Environment variable exfiltration via substitution is blocked."
+
+  - name: block-sensitive-redirect
+    match:
+      ast_pattern: "redirect[target='.env']"
+    action: block
+    severity: critical
+    message: "Redirect to sensitive file is blocked."
+
 filesystem:
   allow_write: ["src/**", "tests/**", "docs/**", "crates/**", "sdks/**", "extensions/**", "policies/**"]
   deny_read: [".env*", "*.pem", "*.key", ".ssh/**"]

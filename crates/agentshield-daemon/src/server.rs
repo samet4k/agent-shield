@@ -45,12 +45,13 @@ pub async fn run(state: Arc<SharedState>) -> Result<()> {
 }
 
 async fn handle_client(stream: LocalSocketStream, state: Arc<SharedState>) -> Result<()> {
+    let connection_id = state.next_connection_id();
     let (reader, mut writer) = stream.split();
     let mut lines = BufReader::new(reader).lines();
 
     while let Some(line) = lines.next_line().await? {
         let req: IpcRequest = serde_json::from_str(&line)?;
-        let resp = dispatch(&state, req).await;
+        let resp = dispatch(&state, req, Some(connection_id)).await;
         writer
             .write_all(format!("{}\n", serde_json::to_string(&resp)?).as_bytes())
             .await?;
@@ -58,16 +59,21 @@ async fn handle_client(stream: LocalSocketStream, state: Arc<SharedState>) -> Re
     Ok(())
 }
 
-async fn dispatch(state: &Arc<SharedState>, req: IpcRequest) -> IpcResponse {
+async fn dispatch(
+    state: &Arc<SharedState>,
+    req: IpcRequest,
+    connection_id: Option<agentshield_core::ConnectionId>,
+) -> IpcResponse {
     match req.method.as_str() {
         "analyze" => match serde_json::from_value::<AnalyzeParams>(req.params) {
-            Ok(params) => match analyze_command(state, params).await {
+            Ok(params) => match analyze_command(state, params, connection_id).await {
                 Ok(result) => ok(req.id, serde_json::to_value(result).unwrap_or_default()),
                 Err(e) => err(req.id, -32000, e.to_string()),
             },
             Err(e) => err(req.id, -32602, e.to_string()),
         },
         "status" => {
+            let session_count = state.sessions.session_count().await;
             let status = DaemonStatus {
                 active: true,
                 version: VERSION.into(),
@@ -86,10 +92,14 @@ async fn dispatch(state: &Arc<SharedState>, req: IpcRequest) -> IpcResponse {
                     .load(std::sync::atomic::Ordering::Relaxed),
                 collectors: state.collectors.read().await.clone(),
             };
-            ok(req.id, serde_json::to_value(status).unwrap_or_default())
+            let mut value = serde_json::to_value(status).unwrap_or_default();
+            if let Some(obj) = value.as_object_mut() {
+                obj.insert("session_count".into(), session_count.into());
+            }
+            ok(req.id, value)
         }
         "exec_event" => match serde_json::from_value::<ExecEvent>(req.params) {
-            Ok(event) => match handle_exec_event(state, event).await {
+            Ok(event) => match handle_exec_event(state, event, connection_id).await {
                 Ok(result) => ok(req.id, serde_json::to_value(result).unwrap_or_default()),
                 Err(e) => err(req.id, -32000, e.to_string()),
             },
